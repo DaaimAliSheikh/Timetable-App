@@ -6,14 +6,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from googleapiclient.discovery import build  # type: ignore
 from google.oauth2 import service_account
 from fastapi.staticfiles import StaticFiles
-
+import os
+import json
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 SERVICE_ACCOUNT_FILE = './google-sheets-key.json'
 SPREADSHEET_ID = '1la-JszZSkQ0RtAlrKzFMUwe1rztryQGrBphrJF8Pm6Y'
 
-credentials = service_account.Credentials.from_service_account_file(  # type: ignore
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+
+# Load the credentials from the environment variable
+google_sheets_credentials = os.getenv('GOOGLE_SHEETS_CREDENTIALS') or ""
+
+# Parse the JSON string into a dictionary
+credentials_dict = json.loads(google_sheets_credentials)
+
+
+credentials = service_account.Credentials.from_service_account_info(  # type: ignore
+    credentials_dict, scopes=SCOPES)
 
 service = build('sheets', 'v4', credentials=credentials)
 
