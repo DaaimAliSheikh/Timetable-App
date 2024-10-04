@@ -20,7 +20,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const response = await fetch("http://localhost:8000/timetable");
+        const response = await fetch("/timetable");
         if (!response.ok) {
           const errorData = await response.json();
           return setErrorMessage(errorData.detail);
@@ -61,7 +61,7 @@ function App() {
             e.preventDefault();
             try {
               const response = await fetch(
-                "http://localhost:8000/timetable?sheetId=" +
+                "/timetable?sheetId=" +
                   extractSheetId(sheetLink) +
                   "&section=" +
                   (section || "XXX")

@@ -98,8 +98,8 @@ const ClassroomList = ({
             />
           )}
 
-          <Carousel className="mb-2" setApi={setApi}>
-            <CarouselContent className="w-full -ml-0">
+          <Carousel className="mb-2 outline outline-1 outline-blue-600 rounded-md pt-1" setApi={setApi}>
+            <CarouselContent className="w-full  -ml-0">
               {/* CarouselContent has a default -ml set, remove it */}
               {schedule.map((class_datas, index) => {
                 return (
