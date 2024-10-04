@@ -1,35 +1,23 @@
 import { useEffect, useState } from "react";
-import { CiNoWaitingSign } from "react-icons/ci";
-import { FaChevronCircleLeft, FaChevronCircleRight } from "react-icons/fa";
 import { FiLoader } from "react-icons/fi";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ClassroomList from "./components/ui/ClassroomList";
 
-interface ITimeTable {
-  day: string;
-  class_data: {
-    course: string;
-    time: string;
-    room: string;
-  }[];
-}
+import type { ISchedule } from "@/types";
+import extractSheetId from "./lib/extractSheetId";
+import getDayIndex from "./lib/getDayIndex";
 
-function extractSheetId(url: string): string | null {
-  // Regular expression to match the Google Sheets document ID
-  const regex = /\/d\/([a-zA-Z0-9-_]+)\//;
-  const match = url.match(regex);
-
-  // Return the extracted ID or null if not found
-  return match ? match[1] : null;
-}
 
 let static_section: string;
 
 function App() {
-  const [timeTable, setTimeTable] = useState<ITimeTable[]>([]);
+  const [timeTable, setTimeTable] = useState<ISchedule[]>([]);
+  const [freeClasses, setFreeClasses] = useState<ISchedule[]>([]);
   const [sheetLink, setSheetLink] = useState<string>("");
   const [section, setSection] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [day, setDay] = useState<number>(0);
+  const [dayIndex, setDayIndex] = useState<number>(getDayIndex());
   useEffect(() => {
     (async () => {
       try {
@@ -43,6 +31,7 @@ function App() {
         setTimeTable(result.time_table);
         setSheetLink(result.url);
         setSection(result.section);
+        setFreeClasses(result.free_classes);
         setErrorMessage("");
         static_section = result.section;
       } catch (error: any) {
@@ -53,16 +42,16 @@ function App() {
 
   return (
     <div className="flex flex-col px-3 items-center w-full max-w-[20rem] mx-auto">
-      <p className="w-full text-sm py-1 mb-2 bg-[#1a1a1a] text-center">
+      <p className="w-[100vw] text-sm py-1 mb-2 bg-[#1a1a1a] text-center">
         Made by
-        <span className="bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent">
+        <span className="bg-gradient-to-r from-blue-400 to-blue-700 bg-clip-text text-transparent">
           {" "}
           Daaim Ali Sheikh{" "}
         </span>
         🥶
       </p>
-      <h1 className="text-2xl">FAST NUCES KHI Timetable</h1>
-      <div className="flex my-2 w-full flex-col  text-start">
+      <h1 className="text-xl font-bold  my-3">FAST NUCES KHI Timetable</h1>
+      <div className="flex  w-full mb-1 flex-col  text-start">
         <form
           onSubmit={async (e) => {
             setLoading(true);
@@ -83,6 +72,7 @@ function App() {
               const result = await response.json();
 
               setTimeTable(result.time_table);
+              setFreeClasses(result.free_classes);
               setErrorMessage("");
               static_section = result.section;
             } catch (error: any) {
@@ -90,78 +80,67 @@ function App() {
             }
             setLoading(false);
           }}
-          className="flex flex-col gap-2 my-1"
+          className="flex flex-col gap-1 my-1"
         >
-          <h2>Current Google Sheets link:</h2>
+          <h2 className="text-sm ">Current Google Sheets link:</h2>
 
           <input
-            className="w-full p-1"
+            className="w-full text-sm p-1 rounded-md"
             type="text"
             value={sheetLink}
             onChange={(e) => setSheetLink(e.target.value)}
           />
 
-          <h2>Current section:</h2>
+          <h2 className="text-sm mt-1">Enter your section:</h2>
           <input
-            className="w-full p-1"
+            className="w-full text-sm p-1 rounded-md"
             type="text"
             value={section}
             onChange={(e) => setSection(e.target.value)}
             placeholder="eg: BCS-5G"
           />
-          <button type="submit" className="py-1 flex justify-center">
+          <button type="submit" className="py-1 my-1 flex justify-center">
             {loading ? (
-              <FiLoader size={20} className="animate-spin m-1" />
+              <FiLoader size={18} className="animate-spin m-1" />
             ) : (
-              "update"
+              "Update classes"
             )}
           </button>
         </form>
 
         <p className="text-red-500">{errorMessage}</p>
       </div>
-
-      <div className="justify-between w-full items-center my-2 flex">
-        <button
-          className="rounded-full"
-          onClick={() => day > 0 && setDay(day - 1)}
-        >
-          <FaChevronCircleLeft />
-        </button>
-        <div className="text-center">
-          <h2 className="text-xl font-bold mx-4">{timeTable[day]?.day}</h2>
-          <p className="text-sm">{static_section}</p>
-        </div>
-        <button
-          className="rounded-full"
-          onClick={() => day < 4 && setDay(day + 1)}
-        >
-          <FaChevronCircleRight />
-        </button>
-      </div>
-      <ul className="flex flex-col gap-6 my-4 text-center">
-        {timeTable.length === 0 ? (
-          <FiLoader className="animate-spin" size={30} />
-        ) : timeTable[day]?.class_data.length > 0 ? (
-          timeTable[day]?.class_data.map((day, index) => {
-            return (
-              <li key={index} className=" bg-[#1a1a1a] p-2 rounded-md text-sm">
-                <h3 className="font-bold text-lg mb-1 leading-6">
-                  {" "}
-                  {day.course}
-                </h3>
-                <p> {day.room}</p>
-                <p> {day.time}</p>
-              </li>
-            );
-          })
-        ) : (
-          <div className=" text-center  my-2">
-            <CiNoWaitingSign className="mx-auto" size={30} />
-            <p>No classes on this day!</p>
-          </div>
-        )}
-      </ul>
+      <Tabs defaultValue="time_table" className="w-full">
+        <TabsList className="w-full grid grid-cols-2 gap-1 rounded-sm">
+          <TabsTrigger
+            className="data-[state=active]:bg-blue-700 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-blue-700 rounded-sm"
+            value="time_table"
+          >
+            Time Table
+          </TabsTrigger>
+          <TabsTrigger
+            className="data-[state=active]:bg-blue-700 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-blue-700 rounded-sm"
+            value="free_classes"
+          >
+            Free Classes
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="time_table">
+          <ClassroomList
+            schedule={timeTable}
+            setDayIndex={setDayIndex}
+            dayIndex={dayIndex}
+            static_section={static_section}
+          />
+        </TabsContent>
+        <TabsContent value="free_classes">
+          <ClassroomList
+            schedule={freeClasses}
+            setDayIndex={setDayIndex}
+            dayIndex={dayIndex}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

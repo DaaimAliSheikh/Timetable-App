@@ -1,3 +1,5 @@
+from math import e
+from tracemalloc import start
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Any
@@ -52,6 +54,11 @@ def convert_time(time_str: str):
     # Split the time string into start and end times
     start_time_str, _ = time_str.split('-')
 
+    # Remove the colon only if it exists at the end
+    # to counter typo in the google sheet
+    if start_time_str.endswith(":"):
+        start_time_str = start_time_str[:-1]  # Remove the last character
+
     # Check if it's AM or PM based on the hour
     hour, _ = map(int, start_time_str.split(':'))
 
@@ -65,8 +72,17 @@ def convert_time(time_str: str):
 
 
 def format_time(time_str: str):
+    start_time_str, _ = time_str.split('-')
     time_str = time_str.replace("-", " - ")
-    hour, _ = map(int, time_str.split('-')[0].split(':'))
+    
+
+    # Remove the colon only if it exists at the end
+    # to counter typo in the google sheet
+    if start_time_str.endswith(":"):
+        start_time_str = start_time_str[:-1]  # Remove the last character
+
+    # Check if it's AM or PM based on the hour
+    hour, _ = map(int, start_time_str.split(':'))
     if hour == 12 or hour < 6:  # If hour is 12, it can only be PM
         time_str += ' PM'
     elif hour > 6 and hour < 12:  # If hour is less than 12, it must be AM
@@ -109,10 +125,13 @@ async def get_timetable(sheetId: str | None = None, section: str | None = None):
                   'thursday ', 'friday']
 
     time_table: Any = []
+    free_classes: Any = []
 
     data = get_sheet_data(valid_days, sheetId)
 
     for i, day in enumerate(valid_days):
+
+        # populating time table
         class_data: list[dict[str, str]] = []
 
         for row in data[i][4:]:
@@ -136,6 +155,21 @@ async def get_timetable(sheetId: str | None = None, section: str | None = None):
         time_table.append(
             {"day": day.capitalize(), "class_data": class_data})
 
+        # populating free classes
+        class_data = []
+        for row in data[i][4:]:
+            for col in range(len(row)):
+                if not row[col]:
+                    # print(data[i][2][col], row[0])
+                    class_data.append(
+                        {"time": data[i][2][col], "room": row[0]})
+        class_data = sorted(
+            class_data, key=lambda x: convert_time(x['time']))
+        for class_info in class_data:
+            class_info['time'] = format_time(class_info['time'])
+        free_classes.append(
+            {"day": day.capitalize(), "class_data": class_data})
+
     global invalid_section
     invalid_section = True
     for day in time_table:
@@ -145,7 +179,8 @@ async def get_timetable(sheetId: str | None = None, section: str | None = None):
     if invalid_section:
         raise HTTPException(
             status_code=400, detail="Invalid section provided")
-    return {"time_table": time_table, "section": section or default_section, "url": SPREADSHEET_URL}
+
+    return {"time_table": time_table, "free_classes": free_classes, "section": section or default_section, "url": SPREADSHEET_URL}
 
 
 app.mount("/", StaticFiles(directory="src/react-app/dist/"), name="ui")
