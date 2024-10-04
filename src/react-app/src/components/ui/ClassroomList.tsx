@@ -3,7 +3,6 @@ import { FaChevronCircleLeft, FaChevronCircleRight } from "react-icons/fa";
 import { FiLoader } from "react-icons/fi";
 import type { ISchedule } from "@/types";
 import { type CarouselApi } from "@/components/ui/carousel";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Carousel,
   CarouselContent,
@@ -86,7 +85,7 @@ const ClassroomList = ({
       </div>
 
       {schedule.length === 0 ? (
-        <FiLoader className="animate-spin mx-auto" size={30} />
+        <FiLoader className="animate-spin mx-auto mt-10" size={30} />
       ) : (
         <>
           {!!static_section || (
@@ -95,76 +94,74 @@ const ClassroomList = ({
               value={inputValue}
               onChange={handleInputChange}
               placeholder="Search for classes or timings..."
-              className="border text-sm p-2 rounded-md w-full my-2"
+              className=" text-sm p-2 rounded-md w-full my-2"
             />
           )}
 
-          <ScrollArea className="my-2  w-full h-[100vh] rounded-md">
-            <Carousel setApi={setApi}>
-              <CarouselContent className="w-full -ml-0">
-                {/* CarouselContent has a default -ml set, remove it */}
-                {schedule.map((class_datas, index) => {
-                  return (
-                    <CarouselItem key={index} className=" px-2">
-                      {/* CarouselItem has default some padding left, remove or override it  */}
-                      {class_datas.class_data.filter((class_info) => {
-                        return (
-                          class_info.time
-                            .toLowerCase()
-                            .includes(inputValue.toLowerCase()) ||
-                          class_info.room
-                            .toLowerCase()
-                            .includes(inputValue.toLowerCase())
-                        );
-                      }).length === 0 ? (
-                        <div className="flex flex-col items-center p-8">
-                          <CiNoWaitingSign size={30} />
-                          <p className="text-sm">No classes found!</p>
-                        </div>
-                      ) : (
-                        <ul className=" flex flex-col  gap-2">
-                          {class_datas.class_data
-                            .filter((class_info) => {
-                              return (
-                                class_info.time
-                                  .toLowerCase()
-                                  .includes(inputValue.toLowerCase()) ||
-                                class_info.room
-                                  .toLowerCase()
-                                  .includes(inputValue.toLowerCase())
-                              );
-                            })
-                            .map((class_info, index) => {
-                              return (
-                                <li
-                                  key={index}
-                                  className={` list-item${dayIndex} bg-[#1a1a1a] p-2 text-center rounded-md text-sm`}
+          <Carousel className="mb-2" setApi={setApi}>
+            <CarouselContent className="w-full -ml-0">
+              {/* CarouselContent has a default -ml set, remove it */}
+              {schedule.map((class_datas, index) => {
+                return (
+                  <CarouselItem key={index} className=" px-1">
+                    {/* CarouselItem has default some padding left, remove or override it  */}
+                    {class_datas.class_data.filter((class_info) => {
+                      return (
+                        class_info.time
+                          .toLowerCase()
+                          .includes(inputValue.toLowerCase()) ||
+                        class_info.room
+                          .toLowerCase()
+                          .includes(inputValue.toLowerCase())
+                      );
+                    }).length === 0 ? (
+                      <div className="flex flex-col items-center p-8">
+                        <CiNoWaitingSign size={30} />
+                        <p className="text-sm">No classes found!</p>
+                      </div>
+                    ) : (
+                      <ul className=" flex flex-col  gap-2">
+                        {class_datas.class_data
+                          .filter((class_info) => {
+                            return (
+                              class_info.time
+                                .toLowerCase()
+                                .includes(inputValue.toLowerCase()) ||
+                              class_info.room
+                                .toLowerCase()
+                                .includes(inputValue.toLowerCase())
+                            );
+                          })
+                          .map((class_info, index) => {
+                            return (
+                              <li
+                                key={index}
+                                className={` list-item${dayIndex} bg-[#1a1a1a] p-2 text-center rounded-md text-sm`}
+                              >
+                                <h3 className="font-bold text-lg mb-1 leading-6">
+                                  {" "}
+                                  {class_info.course}
+                                </h3>
+                                <p
+                                  className={
+                                    class_info.room &&
+                                    "font-semibold text-md mb-1 leading-6"
+                                  }
                                 >
-                                  <h3 className="font-bold text-lg mb-1 leading-6">
-                                    {" "}
-                                    {class_info.course}
-                                  </h3>
-                                  <p
-                                    className={
-                                      class_info.room &&
-                                      "font-bold text-lg mb-1 leading-6"
-                                    }
-                                  >
-                                    {" "}
-                                    {class_info.room}
-                                  </p>
-                                  <p> {class_info.time}</p>
-                                </li>
-                              );
-                            }) || "oopsie"}
-                        </ul>
-                      )}
-                    </CarouselItem>
-                  );
-                })}
-              </CarouselContent>
-            </Carousel>
-          </ScrollArea>
+                                  {" "}
+                                  {class_info.room}
+                                </p>
+                                <p> {class_info.time}</p>
+                              </li>
+                            );
+                          }) || "oopsie"}
+                      </ul>
+                    )}
+                  </CarouselItem>
+                );
+              })}
+            </CarouselContent>
+          </Carousel>
         </>
       )}
     </>

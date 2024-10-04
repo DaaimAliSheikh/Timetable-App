@@ -7,7 +7,6 @@ import type { ISchedule } from "@/types";
 import extractSheetId from "./lib/extractSheetId";
 import getDayIndex from "./lib/getDayIndex";
 
-
 let static_section: string;
 
 function App() {
@@ -21,7 +20,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const response = await fetch("/timetable");
+        const response = await fetch("http://localhost:8000/timetable");
         if (!response.ok) {
           const errorData = await response.json();
           return setErrorMessage(errorData.detail);
@@ -42,12 +41,16 @@ function App() {
 
   return (
     <div className="flex flex-col px-3 items-center w-full max-w-[20rem] mx-auto">
-      <p className="w-[100vw] text-sm py-1 mb-2 bg-[#1a1a1a] text-center">
+      <p className="w-[100vw] sticky top-0 z-10 border-b-2 border-blue-500 text-sm py-1 mb-2 bg-[#1a1a1a] text-center">
         Made by
-        <span className="bg-gradient-to-r from-blue-400 to-blue-700 bg-clip-text text-transparent">
+        <a
+          href="https://github.com/DaaimAliSheikh"
+          target="_blank"
+          className="bg-gradient-to-r from-blue-400 to-blue-700 bg-clip-text text-transparent"
+        >
           {" "}
           Daaim Ali Sheikh{" "}
-        </span>
+        </a>
         🥶
       </p>
       <h1 className="text-xl font-bold  my-3">FAST NUCES KHI Timetable</h1>
@@ -58,7 +61,7 @@ function App() {
             e.preventDefault();
             try {
               const response = await fetch(
-                "/timetable?sheetId=" +
+                "http://localhost:8000/timetable?sheetId=" +
                   extractSheetId(sheetLink) +
                   "&section=" +
                   (section || "XXX")
