@@ -4,3 +4,14 @@ import { twMerge } from "tailwind-merge"
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+const saveToStorage = (value: object) => {
+  localStorage.setItem("data", JSON.stringify(value));
+}
+
+const getFromStorage = () => {
+  const storedData = localStorage.getItem("data");
+  return storedData ? JSON.parse(storedData) : null;
+};
+
+export { saveToStorage, getFromStorage };

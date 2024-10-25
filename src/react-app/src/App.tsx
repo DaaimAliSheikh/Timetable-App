@@ -6,6 +6,7 @@ import ClassroomList from "./components/ui/ClassroomList";
 import type { ISchedule } from "@/types";
 import extractSheetId from "./lib/extractSheetId";
 import getDayIndex from "./lib/getDayIndex";
+import { saveToStorage, getFromStorage } from "./lib/utils";
 
 let static_section: string;
 
@@ -20,12 +21,15 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const response = await fetch("/timetable");
-        if (!response.ok) {
-          const errorData = await response.json();
-          return setErrorMessage(errorData.detail);
+        if (!getFromStorage()) {
+          const response = await fetch("/timetable");
+          if (!response.ok) {
+            const errorData = await response.json();
+            return setErrorMessage(errorData.detail);
+          }
+          saveToStorage(await response.json());
         }
-        const result = await response.json();
+        const result = getFromStorage();
 
         setTimeTable(result.time_table);
         setSheetLink(result.url);
@@ -73,6 +77,7 @@ function App() {
                 return;
               }
               const result = await response.json();
+              saveToStorage(result);
 
               setTimeTable(result.time_table);
               setFreeClasses(result.free_classes);
