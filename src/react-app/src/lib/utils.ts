@@ -1,16 +1,16 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 const saveToStorage = (value: object) => {
-  localStorage.setItem("data", JSON.stringify(value));
-}
+  localStorage.setItem("timetable-data", JSON.stringify(value));
+};
 
 const getFromStorage = () => {
-  const storedData = localStorage.getItem("data");
+  const storedData = localStorage.getItem("timetable-data");
   return storedData ? JSON.parse(storedData) : null;
 };
 

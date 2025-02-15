@@ -1,28 +1,36 @@
 import { useEffect, useState } from "react";
 import { FiLoader } from "react-icons/fi";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import ClassroomList from "./components/ui/ClassroomList";
+import ClassroomList from "./components/ClassroomList";
+import { WithContext as ReactTags, Tag } from "react-tag-input";
 
 import type { ISchedule } from "@/types";
 import extractSheetId from "./lib/extractSheetId";
 import getDayIndex from "./lib/getDayIndex";
 import { saveToStorage, getFromStorage } from "./lib/utils";
 
-let static_section: string;
-
 function App() {
   const [timeTable, setTimeTable] = useState<ISchedule[]>([]);
   const [freeClasses, setFreeClasses] = useState<ISchedule[]>([]);
   const [sheetLink, setSheetLink] = useState<string>("");
-  const [section, setSection] = useState<string>("");
+  const [sections, setSections] = useState<Tag[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [dayIndex, setDayIndex] = useState<number>(getDayIndex());
+  const [activeTab, setActiveTab] = useState("time_table");
   useEffect(() => {
     (async () => {
       try {
         if (!getFromStorage()) {
-          const response = await fetch("/timetable");
+          const response = await fetch("/timetable", {
+            method: "POST",
+            body: JSON.stringify({
+              sections: sections.map((section) => section.id), ///have to send data as array
+            }),
+            headers: {
+              "Content-Type": "application/json",
+            },
+          });
           if (!response.ok) {
             const errorData = await response.json();
             return setErrorMessage(errorData.detail);
@@ -33,15 +41,37 @@ function App() {
 
         setTimeTable(result.time_table);
         setSheetLink(result.url);
-        setSection(result.section);
+        setSections(
+          result.sections.map((section: string) => ({
+            id: section,
+            text: section,
+          }))
+        );
         setFreeClasses(result.free_classes);
         setErrorMessage("");
-        static_section = result.section;
       } catch (error: any) {
         setErrorMessage("Network error");
       }
     })();
   }, []);
+
+  const handleDelete = (i: number) => {
+    setSections(sections.filter((_section, index) => index !== i));
+  };
+
+  const handleAddition = (section: Tag) => {
+    setSections([...sections, section]);
+  };
+
+  const handleDrag = (section: Tag, currPos: number, newPos: number) => {
+    const newTags = sections.slice();
+    newTags.splice(currPos, 1);
+    newTags.splice(newPos, 0, section);
+    setSections(newTags);
+  };
+  const onClearAll = () => {
+    setSections([]);
+  };
 
   return (
     <div className="flex flex-col px-3 items-center w-full max-w-[20rem] mx-auto">
@@ -65,10 +95,16 @@ function App() {
             e.preventDefault();
             try {
               const response = await fetch(
-                "/timetable?sheetId=" +
-                  extractSheetId(sheetLink) +
-                  "&section=" +
-                  (section || "XXX")
+                "/timetable?sheetId=" + extractSheetId(sheetLink),
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    sections: sections.map((section) => section.id), ///have to send data as array
+                  }),
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                }
               );
               if (!response.ok) {
                 const errorData = await response.json();
@@ -80,9 +116,14 @@ function App() {
               saveToStorage(result);
 
               setTimeTable(result.time_table);
+              setSections(
+                result.sections.map((section: string) => ({
+                  id: section,
+                  text: section,
+                }))
+              );
               setFreeClasses(result.free_classes);
               setErrorMessage("");
-              static_section = result.section;
             } catch (error: any) {
               setErrorMessage("Network error");
             }
@@ -91,22 +132,36 @@ function App() {
           className="flex flex-col gap-1 my-1"
         >
           <h2 className="text-sm ">Current Google Sheets link:</h2>
-
           <input
             className="w-full text-sm p-1 rounded-md"
             type="text"
             value={sheetLink}
             onChange={(e) => setSheetLink(e.target.value)}
           />
-
-          <h2 className="text-sm mt-1">Enter your section:</h2>
-          <input
-            className="w-full text-sm p-1 rounded-md"
-            type="text"
-            value={section}
-            onChange={(e) => setSection(e.target.value)}
-            placeholder="eg: BCS-5G"
+          <h2 className="text-sm mt-1">Enter Section(s):</h2>
+          <ReactTags
+            tags={sections}
+            placeholder="Eg: BCS-6G"
+            handleDelete={handleDelete}
+            handleAddition={handleAddition}
+            handleDrag={handleDrag}
+            inputFieldPosition="top"
+            autocomplete
+            clearAll
+            onClearAll={onClearAll}
+            maxTags={7}
+            inline
+            classNames={{
+              tags: "tagsClass",
+              tagInput: "tagInputClass",
+              tagInputField: "tagInputFieldClass",
+              selected: "selectedClass",
+              tag: "tagClass",
+              remove: "removeClass",
+              clearAll: "clearAllButton",
+            }}
           />
+
           <button type="submit" className="py-1 my-1 flex justify-center">
             {loading ? (
               <FiLoader size={18} className="animate-spin m-1" />
@@ -118,7 +173,11 @@ function App() {
 
         <p className="text-red-500">{errorMessage}</p>
       </div>
-      <Tabs defaultValue="time_table" className="w-full">
+      <Tabs
+        defaultValue="time_table"
+        className="w-full"
+        onValueChange={(value) => setActiveTab(value)}
+      >
         <TabsList className="w-full grid grid-cols-2 gap-1 rounded-sm">
           <TabsTrigger
             className="data-[state=active]:bg-blue-700 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-blue-700 rounded-sm"
@@ -138,7 +197,7 @@ function App() {
             schedule={timeTable}
             setDayIndex={setDayIndex}
             dayIndex={dayIndex}
-            static_section={static_section}
+            activeTab={activeTab}
           />
         </TabsContent>
         <TabsContent value="free_classes">
@@ -146,6 +205,7 @@ function App() {
             schedule={freeClasses}
             setDayIndex={setDayIndex}
             dayIndex={dayIndex}
+            activeTab={activeTab}
           />
         </TabsContent>
       </Tabs>

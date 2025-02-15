@@ -3,7 +3,7 @@ from tracemalloc import start
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Any
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from googleapiclient.discovery import build  # type: ignore
 from google.oauth2 import service_account
@@ -11,27 +11,26 @@ from fastapi.staticfiles import StaticFiles
 import os
 import json
 from datetime import datetime
+from collections import defaultdict
+from dotenv import load_dotenv
+import os
 
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-SERVICE_ACCOUNT_FILE = './google-sheets-key.json'
-SPREADSHEET_ID = '1la-JszZSkQ0RtAlrKzFMUwe1rztryQGrBphrJF8Pm6Y'
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1la-JszZSkQ0RtAlrKzFMUwe1rztryQGrBphrJF8Pm6Y/edit?gid=424654452#gid=424654452"
+import httpx
 
-default_section = "BCS-5G"
+# Load environment variables from .env file
+load_dotenv()
+
+TIMETABLE_API_URL = os.getenv("TIMETABLE_API_URL") or ""
+
+
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw/edit?gid=1909094994#gid=1909094994"
+DEFAULT_SHEET_ID = "1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw"
+
+DEFAULT_SECTIONS = ["BCS-6G"]
+SHEET_NAMES = ['MONDAY', 'TUESDAY ', 'WEDNESDAY',
+               'THURSDAY', 'FRIDAY']
+LAB_HEADING_ROW = 46  # ignore this heading row as it has no classes
 lab_hours = 3
-
-
-# Load the credentials from the environment variable
-google_sheets_credentials = os.getenv('GOOGLE_SHEETS_CREDENTIALS') or ""
-
-# Parse the JSON string into a dictionary
-credentials_dict = json.loads(google_sheets_credentials)
-
-
-credentials = service_account.Credentials.from_service_account_info(  # type: ignore
-    credentials_dict, scopes=SCOPES)
-
-service = build('sheets', 'v4', credentials=credentials)
 
 
 app = FastAPI()
@@ -72,9 +71,9 @@ def convert_time(time_str: str):
 
 
 def format_time(time_str: str):
+
     start_time_str, _ = time_str.split('-')
     time_str = time_str.replace("-", " - ")
-    
 
     # Remove the colon only if it exists at the end
     # to counter typo in the google sheet
@@ -99,53 +98,59 @@ def concatenate_time_ranges(range1: str, range2: str) -> str:
     return f"{start_time1}-{end_time2}"
 
 
-def get_sheet_data(valid_days: list[str], sheetId: str | None) -> list[list[str]]:
+def get_sheet_data(sheetId: str | None) -> list[list[str]]:
     try:
-        ranges = [f"{day}!A1:Z1000" for day in valid_days]
-
-        # Use batchGet to fetch data for all sheets in a single request
-        result = service.spreadsheets().values().batchGet(
-            spreadsheetId=sheetId or SPREADSHEET_ID, ranges=ranges).execute()
-
-        # Extract the values for each day from the response
-        sheet_data = []
-        for day_data in result.get('valueRanges', []):
-            # Get the 2D list for each sheet
-            values = day_data.get('values', [])
-            sheet_data.append(values)  # Append 2D list to the result
-        return sheet_data
-    except Exception:
+        response = httpx.get(TIMETABLE_API_URL + (sheetId or ""), timeout=None)
+        if response.status_code != 200:
+            raise httpx.HTTPStatusError(
+                f"Request failed with status code {response.status_code}: {response.text}",
+                request=response.request,
+                response=response
+            )
+        json_data = response.json()
+        grouped_data = defaultdict(list)
+        for row in json_data:
+            for key, value in row.items():
+                if key in SHEET_NAMES:
+                    row_values = [value] + \
+                        [row.get(f"col_{i}", "") for i in range(2, 11)]
+                    grouped_data[key].append(row_values)
+        return list(grouped_data.values())
+    except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=500, detail="Error retrieving sheet data")
 
 
-@app.get("/timetable")
-async def get_timetable(sheetId: str | None = None, section: str | None = None):
+@app.post("/timetable")
+async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body()):
     valid_days = ['monday', 'tuesday ', 'wednesday ',
                   'thursday ', 'friday']
-
+    sections = json_data.get(
+        'sections', DEFAULT_SECTIONS)
+    sections = sections if len(sections) > 0 else DEFAULT_SECTIONS
     time_table: Any = []
     free_classes: Any = []
 
-    data = get_sheet_data(valid_days, sheetId)
+    data = get_sheet_data(sheetId)
 
     for i, day in enumerate(valid_days):
 
         # populating time table
         class_data: list[dict[str, str]] = []
 
-        for row in data[i][4:]:
+        for row in data[i][3:]:
             for col in range(1, len(row)):
-                if (section or default_section) in row[col]:
+                if any(section in row[col] for section in sections):
                     # if it's a lab make it 3 hours
                     if ("lab" in row[col].lower()):
                         class_data.append(
-                            {"course": row[col].replace("\n", ""), "time": concatenate_time_ranges(data[i][2][col], data[i][2][col+lab_hours-1]),
+                            {"course": row[col], "time": concatenate_time_ranges(data[i][1][col], data[i][1][col+lab_hours-1]),
                                 "room": row[0]}
                         )
                     else:
                         class_data.append(
-                            {"course": row[col].replace("\n", ""), "time": data[i][2][col],
+                            {"course": row[col], "time": data[i][1][col],
                                 "room": row[0]})
         class_data = sorted(
             class_data, key=lambda x: convert_time(x['time']))
@@ -157,30 +162,30 @@ async def get_timetable(sheetId: str | None = None, section: str | None = None):
 
         # populating free classes
         class_data = []
-        for row in data[i][4:]:
+        for index, row in enumerate(data[i][3:]):
+
+            if index == LAB_HEADING_ROW:  # ignore row with lab heading only
+                continue
             for col in range(len(row)):
-                if not row[col]:
-                    # print(data[i][2][col], row[0])
+                # checking for existence of timeslot by checking data[i][1][col] as some empty cells are out of bounds
+                if not row[col] and data[i][1][col]:
+                    # labs actually occupy only the first column of the three columns they seem to occupy in the timetable, rest two are empty
+                    prev_col = col-1
+                    prev_prev_col = col-2
+                    if "lab" in row[prev_col].lower() and prev_col != 0:
+                        continue
+                    if prev_prev_col > -1 and "lab" in row[prev_prev_col].lower() and prev_col != 0:
+                        continue
                     class_data.append(
-                        {"time": data[i][2][col], "room": row[0]})
+                        {"time": data[i][1][col], "room": row[0]})
         class_data = sorted(
-            class_data, key=lambda x: convert_time(x['time']))
+            class_data, key=lambda x: x['time'])
         for class_info in class_data:
-            class_info['time'] = format_time(class_info['time'])
+            class_info['time'] = class_info['time']
         free_classes.append(
             {"day": day.capitalize(), "class_data": class_data})
 
-    global invalid_section
-    invalid_section = True
-    for day in time_table:
-        if len(day['class_data']) > 0:
-            invalid_section = False
-            break
-    if invalid_section:
-        raise HTTPException(
-            status_code=400, detail="Invalid section provided")
-
-    return {"time_table": time_table, "free_classes": free_classes, "section": section or default_section, "url": SPREADSHEET_URL}
+    return {"time_table": time_table, "free_classes": free_classes, "sections": sections or DEFAULT_SECTIONS, "url": SPREADSHEET_URL}
 
 
 app.mount("/", StaticFiles(directory="src/react-app/dist/"), name="ui")

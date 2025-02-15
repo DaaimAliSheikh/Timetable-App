@@ -14,12 +14,13 @@ const ClassroomList = ({
   schedule,
   dayIndex,
   setDayIndex,
-  static_section,
+  activeTab,
 }: {
   schedule: ISchedule[];
   dayIndex: number;
   setDayIndex: React.Dispatch<React.SetStateAction<number>>;
   static_section?: string;
+  activeTab: string;
 }) => {
   const [api, setApi] = useState<CarouselApi>();
 
@@ -68,7 +69,7 @@ const ClassroomList = ({
         </button>
         <div className="text-center">
           <h2 className="text-xl font-bold mx-4">{schedule[dayIndex]?.day}</h2>
-          <p className="text-sm">{static_section}</p>
+          <p className="text-sm">{}</p>
         </div>
         <button
           className="rounded-full"
@@ -88,7 +89,7 @@ const ClassroomList = ({
         <FiLoader className="animate-spin mx-auto mt-10" size={30} />
       ) : (
         <>
-          {!!static_section || (
+          {activeTab == "time_table" || (
             <input
               type="text"
               value={inputValue}
@@ -98,7 +99,10 @@ const ClassroomList = ({
             />
           )}
 
-          <Carousel className="mb-2 outline outline-1 outline-blue-600 rounded-md pt-1" setApi={setApi}>
+          <Carousel
+            className="mb-2 outline outline-1 outline-blue-600 rounded-md pt-1"
+            setApi={setApi}
+          >
             <CarouselContent className="w-full  -ml-0">
               {/* CarouselContent has a default -ml set, remove it */}
               {schedule.map((class_datas, index) => {
