@@ -1,36 +1,31 @@
-from math import e
-from tracemalloc import start
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Any
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from googleapiclient.discovery import build  # type: ignore
-from google.oauth2 import service_account
 from fastapi.staticfiles import StaticFiles
-import os
-import json
 from datetime import datetime
 from collections import defaultdict
 from dotenv import load_dotenv
 import os
-
 import httpx
 
 # Load environment variables from .env file
 load_dotenv()
 
 TIMETABLE_API_URL = os.getenv("TIMETABLE_API_URL") or ""
-
-
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw/edit?gid=1909094994#gid=1909094994"
-DEFAULT_SHEET_ID = "1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw"
 
+#Extracted from above, not done programmatically through regex because if google decides to change its URL structure then this code will break
+DEFAULT_SHEET_ID = "1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw" 
 DEFAULT_SECTIONS = ["BCS-6G"]
+
+#The spaces(whitespaces) after certain days ie: 'tuesday ' is important as it is the the way it is written in the google sheet
 SHEET_NAMES = ['MONDAY', 'TUESDAY ', 'WEDNESDAY',
                'THURSDAY', 'FRIDAY']
 LAB_HEADING_ROW = 46  # ignore this heading row as it has no classes
-lab_hours = 3
+FRIDAY_LAB_HEADING_ROW = 47  # ignore this heading row as it has no classes(friday has this heading on a differnet row number)
+LAB_CELL_SIZE = 3 #number of cells a LAB session occupies horizontally
 
 
 app = FastAPI()
@@ -124,8 +119,7 @@ def get_sheet_data(sheetId: str | None) -> list[list[str]]:
 
 @app.post("/timetable")
 async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body()):
-    valid_days = ['monday', 'tuesday ', 'wednesday ',
-                  'thursday ', 'friday']
+    
     sections = json_data.get(
         'sections', DEFAULT_SECTIONS)
     sections = sections if len(sections) > 0 else DEFAULT_SECTIONS
@@ -134,18 +128,17 @@ async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body(
 
     data = get_sheet_data(sheetId)
 
-    for i, day in enumerate(valid_days):
-
+    for i, day in enumerate(SHEET_NAMES):
         # populating time table
         class_data: list[dict[str, str]] = []
 
         for row in data[i][3:]:
             for col in range(1, len(row)):
                 if any(section in row[col] for section in sections):
-                    # if it's a lab make it 3 hours
+                    # if it's a lab, use the time range of three cells horizontally
                     if ("lab" in row[col].lower()):
                         class_data.append(
-                            {"course": row[col], "time": concatenate_time_ranges(data[i][1][col], data[i][1][col+lab_hours-1]),
+                            {"course": row[col], "time": concatenate_time_ranges(data[i][1][col], data[i][1][col+LAB_CELL_SIZE-1]),
                                 "room": row[0]}
                         )
                     else:
@@ -164,7 +157,7 @@ async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body(
         class_data = []
         for index, row in enumerate(data[i][3:]):
 
-            if index == LAB_HEADING_ROW:  # ignore row with lab heading only
+            if index == LAB_HEADING_ROW or (day == "FRIDAY" and index == FRIDAY_LAB_HEADING_ROW):  # ignore the LABS heading row as it contains no classes
                 continue
             for col in range(len(row)):
                 # checking for existence of timeslot by checking data[i][1][col] as some empty cells are out of bounds
