@@ -9,6 +9,7 @@ import extractSheetId from "./lib/extractSheetId";
 import getDayIndex from "./lib/getDayIndex";
 import { saveToStorage, getFromStorage } from "./lib/utils";
 import { IoAddOutline } from "react-icons/io5";
+import { toast } from "sonner";
 
 function App() {
   const [timeTable, setTimeTable] = useState<ISchedule[]>([]);
@@ -62,7 +63,6 @@ function App() {
   };
 
   const handleAddition = (section: Tag) => {
-    console.log(section);
     setSections([...sections, section]);
     setSectionValue("");
   };
@@ -128,6 +128,7 @@ function App() {
               );
               setFreeClasses(result.free_classes);
               setErrorMessage("");
+              toast.success("Timetable updated successfully!");
             } catch (error: any) {
               setErrorMessage("Network error");
             }
@@ -159,6 +160,8 @@ function App() {
               handleInputChange={setSectionValue}
               inputValue={sectionValue}
               inline
+              editable={false}
+              allowDragDrop={false}
               classNames={{
                 tags: "tagsClass",
                 tagInput: "tagInputClass",
@@ -170,6 +173,7 @@ function App() {
               }}
             />
             <button
+              type="button"
               onClick={() => {
                 sectionValue &&
                   setSections([
@@ -182,7 +186,7 @@ function App() {
                   ]);
                 setSectionValue("");
               }}
-              className="bg-blue-700 ml-2 p-2 rounded-md"
+              className="bg-blue-700 ml-2 p-2 rounded-md text-white"
             >
               <IoAddOutline />
             </button>
@@ -221,6 +225,7 @@ function App() {
         <TabsContent value="time_table">
           <ClassroomList
             schedule={timeTable}
+            sections={sections.map((section) => section.id)}
             setDayIndex={setDayIndex}
             dayIndex={dayIndex}
             activeTab={activeTab}

@@ -3,7 +3,24 @@ import { FaChevronCircleLeft, FaChevronCircleRight } from "react-icons/fa";
 import { FiLoader } from "react-icons/fi";
 import type { ISchedule } from "@/types";
 import { type CarouselApi } from "@/components/ui/carousel";
-import { Separator } from "@/components/ui/separator"
+
+const getGroupedData = (
+  sections: string[],
+  class_data: {
+    course?: string;
+    time: string;
+    room: string;
+  }[]
+): {} => {
+  const groupedData: any = {};
+
+  sections.forEach((section) => {
+    groupedData[section] = class_data.filter((classItem) =>
+      classItem.course?.includes(section)
+    );
+  });
+  return groupedData;
+};
 
 import {
   Carousel,
@@ -17,12 +34,14 @@ const ClassroomList = ({
   dayIndex,
   setDayIndex,
   activeTab,
+  sections,
 }: {
   schedule: ISchedule[];
   dayIndex: number;
   setDayIndex: React.Dispatch<React.SetStateAction<number>>;
   static_section?: string;
   activeTab: string;
+  sections?: string[];
 }) => {
   const [api, setApi] = useState<CarouselApi>();
 
@@ -67,7 +86,6 @@ const ClassroomList = ({
             });
           }}
         >
-          
           <FaChevronCircleLeft />
         </button>
         <div className="text-center">
@@ -112,56 +130,111 @@ const ClassroomList = ({
                 return (
                   <CarouselItem key={index} className=" px-1">
                     {/* CarouselItem has default some padding left, remove or override it  */}
-                    {class_datas.class_data.filter((class_info) => {
-                      return (
-                        class_info.time
-                          .toLowerCase()
-                          .includes(inputValue.toLowerCase()) ||
-                        class_info.room
-                          .toLowerCase()
-                          .includes(inputValue.toLowerCase())
-                      );
-                    }).length === 0 ? (
-                      <div className="flex flex-col items-center p-8">
-                        <CiNoWaitingSign size={30} />
-                        <p className="text-sm">No classes found!</p>
-                      </div>
+                    {sections === undefined ? (
+                      class_datas.class_data.filter((class_info) => {
+                        return (
+                          class_info.time
+                            .toLowerCase()
+                            .includes(inputValue.toLowerCase()) ||
+                          class_info.room
+                            .toLowerCase()
+                            .includes(inputValue.toLowerCase())
+                        );
+                      }).length === 0 ? (
+                        <div className="flex flex-col items-center p-8">
+                          <CiNoWaitingSign size={30} />
+                          <p className="text-sm">No classes found!</p>
+                        </div>
+                      ) : (
+                        <ul className=" flex flex-col  gap-2">
+                          {class_datas.class_data
+                            .filter((class_info) => {
+                              return (
+                                class_info.time
+                                  .toLowerCase()
+                                  .includes(inputValue.toLowerCase()) ||
+                                class_info.room
+                                  .toLowerCase()
+                                  .includes(inputValue.toLowerCase())
+                              );
+                            })
+                            .map((class_info, index) => {
+                              return (
+                                <li
+                                  key={index}
+                                  className={` list-item${dayIndex} bg-[#1a1a1a] p-2 text-center rounded-md text-sm`}
+                                >
+                                  <h3
+                                    className={
+                                      "font-semibold text-md mb-1 leading-6"
+                                    }
+                                  >
+                                    {" "}
+                                    {class_info.room}
+                                  </h3>
+
+                                  <p> {class_info.time}</p>
+                                </li>
+                              );
+                            }) || "oopsie"}
+                        </ul>
+                      )
                     ) : (
                       <ul className=" flex flex-col  gap-2">
-                        {class_datas.class_data
-                          .filter((class_info) => {
-                            return (
-                              class_info.time
-                                .toLowerCase()
-                                .includes(inputValue.toLowerCase()) ||
-                              class_info.room
-                                .toLowerCase()
-                                .includes(inputValue.toLowerCase())
-                            );
-                          })
-                          .map((class_info, index) => {
-                            return (
-                              <li
-                                key={index}
-                                className={` list-item${dayIndex} bg-[#1a1a1a] p-2 text-center rounded-md text-sm`}
-                              >
-                                <h3 className="font-bold text-lg mb-1 leading-6">
-                                  {" "}
-                                  {class_info.course}
-                                </h3>
-                                <p
-                                  className={
-                                    class_info.room &&
-                                    "font-semibold text-md mb-1 leading-6"
-                                  }
-                                >
-                                  {" "}
-                                  {class_info.room}
-                                </p>
-                                <p> {class_info.time}</p>
-                              </li>
-                            );
-                          }) || "oopsie"}
+                        {Object.entries(
+                          getGroupedData(sections || [], class_datas.class_data)
+                        ).map(([section, class_data]) => {
+                          return (
+                            <li className="my-2">
+                              <h2 className="text-md text-center font-bold text-white bg-blue-600 border-b-2 border-gray-400 py-1 rounded-md m-2">
+                                {section}
+                              </h2>
+                              <ul className=" flex flex-col  gap-2">
+                                {(
+                                  class_data as {
+                                    course?: string;
+                                    time: string;
+                                    room: string;
+                                  }[]
+                                ).length === 0 ? (
+                                  <div className="flex flex-col items-center p-8">
+                                    <CiNoWaitingSign size={30} />
+                                    <p className="text-sm">No classes found!</p>
+                                  </div>
+                                ) : (
+                                  (
+                                    class_data as {
+                                      course?: string;
+                                      time: string;
+                                      room: string;
+                                    }[]
+                                  ).map((class_info, index) => {
+                                    return (
+                                      <li
+                                        key={index}
+                                        className={` list-item${dayIndex} bg-[#1a1a1a] p-2 text-center rounded-md text-sm`}
+                                      >
+                                        <h3 className="font-bold text-lg mb-1 leading-6">
+                                          {" "}
+                                          {class_info.course}
+                                        </h3>
+                                        <p
+                                          className={
+                                            "font-semibold text-md mb-1 leading-6"
+                                          }
+                                        >
+                                          {" "}
+                                          {class_info.room}
+                                        </p>
+                                        <p> {class_info.time}</p>
+                                      </li>
+                                    );
+                                  }) || "oopsie"
+                                )}
+                              </ul>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </CarouselItem>
