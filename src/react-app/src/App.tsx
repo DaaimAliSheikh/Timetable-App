@@ -8,6 +8,7 @@ import type { ISchedule } from "@/types";
 import extractSheetId from "./lib/extractSheetId";
 import getDayIndex from "./lib/getDayIndex";
 import { saveToStorage, getFromStorage } from "./lib/utils";
+import { IoAddOutline } from "react-icons/io5";
 
 function App() {
   const [timeTable, setTimeTable] = useState<ISchedule[]>([]);
@@ -18,6 +19,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [dayIndex, setDayIndex] = useState<number>(getDayIndex());
   const [activeTab, setActiveTab] = useState("time_table");
+  const [sectionValue, setSectionValue] = useState<string>("");
   useEffect(() => {
     (async () => {
       try {
@@ -60,7 +62,9 @@ function App() {
   };
 
   const handleAddition = (section: Tag) => {
+    console.log(section);
     setSections([...sections, section]);
+    setSectionValue("");
   };
 
   const handleDrag = (section: Tag, currPos: number, newPos: number) => {
@@ -138,29 +142,51 @@ function App() {
             value={sheetLink}
             onChange={(e) => setSheetLink(e.target.value)}
           />
-          <h2 className="text-sm mt-1">Enter Section(s):</h2>
-          <ReactTags
-            tags={sections}
-            placeholder="Eg: BCS-6G"
-            handleDelete={handleDelete}
-            handleAddition={handleAddition}
-            handleDrag={handleDrag}
-            inputFieldPosition="top"
-            autocomplete
-            clearAll
-            onClearAll={onClearAll}
-            maxTags={7}
-            inline
-            classNames={{
-              tags: "tagsClass",
-              tagInput: "tagInputClass",
-              tagInputField: "tagInputFieldClass",
-              selected: "selectedClass",
-              tag: "tagClass",
-              remove: "removeClass",
-              clearAll: "clearAllButton",
-            }}
-          />
+
+          <h2 className="text-sm mt-1">Add Section(s):</h2>
+          <div className="flex justify-start items-start ">
+            <ReactTags
+              tags={sections}
+              placeholder="Eg: BCS-6G"
+              handleDelete={handleDelete}
+              handleAddition={handleAddition}
+              handleDrag={handleDrag}
+              inputFieldPosition="top"
+              autocomplete
+              clearAll
+              onClearAll={onClearAll}
+              maxTags={7}
+              handleInputChange={setSectionValue}
+              inputValue={sectionValue}
+              inline
+              classNames={{
+                tags: "tagsClass",
+                tagInput: "tagInputClass",
+                tagInputField: "tagInputFieldClass",
+                selected: "selectedClass",
+                tag: "tagClass",
+                remove: "removeClass",
+                clearAll: "clearAllButton",
+              }}
+            />
+            <button
+              onClick={() => {
+                sectionValue &&
+                  setSections([
+                    ...sections,
+                    {
+                      id: sectionValue,
+                      className: sectionValue,
+                      text: sectionValue,
+                    }, ///converting string input state value to Tag
+                  ]);
+                setSectionValue("");
+              }}
+              className="bg-blue-700 ml-2 p-2 rounded-md"
+            >
+              <IoAddOutline />
+            </button>
+          </div>
 
           <button type="submit" className="py-1 my-1 flex justify-center">
             {loading ? (

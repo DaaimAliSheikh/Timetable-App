@@ -3,6 +3,8 @@ import { FaChevronCircleLeft, FaChevronCircleRight } from "react-icons/fa";
 import { FiLoader } from "react-icons/fi";
 import type { ISchedule } from "@/types";
 import { type CarouselApi } from "@/components/ui/carousel";
+import { Separator } from "@/components/ui/separator"
+
 import {
   Carousel,
   CarouselContent,
@@ -65,6 +67,7 @@ const ClassroomList = ({
             });
           }}
         >
+          
           <FaChevronCircleLeft />
         </button>
         <div className="text-center">
