@@ -1,37 +1,50 @@
-from contextlib import asynccontextmanager
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+import os
+import json
 from typing import Any
-from fastapi import Body, FastAPI, HTTPException, Request
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, HTTPException, Body
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from datetime import datetime
-from dotenv import load_dotenv
+from starlette.middleware.sessions import SessionMiddleware
+from authlib.integrations.starlette_client import OAuth
 from google.oauth2.credentials import Credentials
-import os
-import httpx
-import json
-from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from datetime import datetime
 
-# Load environment variables from .env file
+
 load_dotenv()
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI")
-ALLOWED_EMAIL = os.getenv("ALLOWED_EMAIL")
+APP_SECRET = os.getenv("APP_SECRET_KEY")
+ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN")
 
-SCOPES = [
-    "openid",                                 # for ID token
-    # to read the user’s email
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/spreadsheets.readonly"
-]
-TOKEN_STORE = "token.json"
-oauth2_flow = None     # holds the Flow during the auth handoff
-creds: Credentials | None = None
+if not all([CLIENT_ID, CLIENT_SECRET, APP_SECRET, ALLOWED_DOMAIN]):
+    raise RuntimeError("Missing required environment variables")
 
-TIMETABLE_API_URL = os.getenv("TIMETABLE_API_URL") or ""
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=APP_SECRET or "abcd")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Replace your Flow logic with Authlib ---
+oauth = OAuth()
+CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
+oauth.register(
+    name="google",
+    server_metadata_url=CONF_URL,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET,
+    client_kwargs={
+        "scope": "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/spreadsheets.readonly"
+    }
+)
+
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw/edit?gid=1909094994#gid=1909094994"
 
 # Extracted from above, not done programmatically through regex because if google decides to change its URL structure then this code will break
@@ -45,22 +58,6 @@ LAB_HEADING_ROW = 46  # ignore this heading row as it has no classes
 # ignore this heading row as it has no classes(friday has this heading on a differnet row number)
 FRIDAY_LAB_HEADING_ROW = 47
 LAB_CELL_SIZE = 3  # number of cells a LAB session occupies horizontally
-
-
-def save_refresh_token(refresh_token: str):
-    with open(TOKEN_STORE, "w") as f:
-        json.dump({"refresh_token": refresh_token}, f)
-
-
-def generate_credentials(refresh_token: str) -> Credentials:
-    return Credentials(
-        token=None,
-        refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        scopes=SCOPES
-    )
 
 
 def convert_time(time_str: str):
@@ -112,7 +109,7 @@ def concatenate_time_ranges(range1: str, range2: str) -> str:
     return f"{start_time1}-{end_time2}"
 
 
-def get_sheet_data(sheetId: str | None) -> list[list[str]]:
+def get_sheet_data(sheetId: str | None, creds: Credentials) -> list[list[str]]:
 
     try:
         service = build("sheets", "v4", credentials=creds)
@@ -149,98 +146,103 @@ def get_sheet_data(sheetId: str | None) -> list[list[str]]:
             status_code=500, detail="Error retrieving sheet data")
 
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Replace with your React app's URL
-    allow_credentials=True,  # allow client to send cookies
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
-)
-
-
-@app.get("/")
-def index():
-    return FileResponse("src/react-app/dist/index.html")
-
-
 @app.get("/login")
-def login():
-    """
-    Step 1: Redirect *you* to Google’s OAuth consent screen.
-    Only ALLOWED_EMAIL will be allowed in the callback.
-    """
-
-    global oauth2_flow
-    client_config = {
-        "web": {
-            "client_id":     CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "auth_uri":      "https://accounts.google.com/o/oauth2/auth",
-            "token_uri":     "https://oauth2.googleapis.com/token",
-        }
-    }
-    oauth2_flow = Flow.from_client_config(
-        client_config,
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI
-    )
-    auth_url, _ = oauth2_flow.authorization_url(
-        access_type="offline",          # request a one-time refresh token
-        include_granted_scopes=False,  # keep any prior consents
-        prompt="consent"               # force the consent dialog
-    )
-    return RedirectResponse(auth_url)
+async def login(request: Request):
+    # Redirect the user to Google’s consent page; state is kept in session
+    redirect_uri = request.url_for("auth")
+    if not oauth.google:
+        raise HTTPException(400, "OAuth not configured")
+    return await oauth.google.authorize_redirect(request, redirect_uri, prompt="select_account")
 
 
-@app.get("/oauth2callback")
-def oauth2callback(request: Request):
-    """
-    Step 2: Google redirects here with ?code=…
-    We exchange it for tokens, verify the email, and save the refresh token.
-    """
-    global oauth2_flow, creds
-    if oauth2_flow is None:
-        raise HTTPException(400, "Start at /login first.")
-
-    # Exchange code for tokens
-    oauth2_flow.fetch_token(code=request.query_params["code"])
-    temp_creds = oauth2_flow.credentials
-
-    # Verify that *you* are the one authenticating
-    resp = httpx.get(
-        "https://openidconnect.googleapis.com/v1/userinfo",
-        headers={"Authorization": f"Bearer {temp_creds.token}"}
-    )
-    resp.raise_for_status()
-    user_info = resp.json()
-    if user_info.get("email") != ALLOWED_EMAIL:
-        raise HTTPException(403, "Unauthorized user")
-
-    # Persist your one-time refresh token
-    if not temp_creds.refresh_token:
+@app.get("/validate")
+async def validate(request: Request):
+    token = request.session.get("token")
+    if not token or not oauth.google:
         raise HTTPException(
-            400, "No refresh token.")
-    # Load into our global creds so /sheet-data works immediately
-    creds = generate_credentials(temp_creds.refresh_token)
-    oauth2_flow = None  # clear the flow
+            401, f"Not authorized. Try login with an {ALLOWED_DOMAIN} email")
+    try:
+        creds = Credentials(
+            token=token["access_token"],
+            refresh_token=token.get("refresh_token"),
+            # ✔️ correct
+            token_uri=oauth.google.server_metadata["token_endpoint"],
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            scopes=oauth.google.client_kwargs["scope"].split()
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=401, detail=f'Error retrieving credentials, perhaps try login with an {ALLOWED_DOMAIN} email')
 
-    return {"status": "authorized", "email": user_info["email"]}
+
+@app.get("/auth")
+async def auth(request: Request):
+    if not oauth.google:
+        raise HTTPException(400, "OAuth not configured")
+    try:
+        # Exchange code for tokens
+        token = await oauth.google.authorize_access_token(request)
+        # Authlib automatically populated token['userinfo'] if id_token was present
+        user = token.get("userinfo")
+
+        # Fallback: call the userinfo endpoint manually
+        if not user:
+            resp = await oauth.google.get("userinfo", token=token)
+            resp.raise_for_status()
+            user = resp.json()
+
+        # Now enforce your email check
+        email = user.get("email", "").lower()
+        if not email.endswith(ALLOWED_DOMAIN):
+            return RedirectResponse(
+                url=f"/?error=unauthorized_domain"
+            )
+
+        # Store tokens in session (refresh_token included on first consent)
+        request.session["token"] = token
+        # Redirect back to your UI
+
+        return RedirectResponse(url="/")
+
+    except Exception as e:
+        print(e)
+        raise HTTPException(
+            status_code=403, detail=f'Authorization failed.')
+        # Handle error
 
 
 @app.post("/timetable")
-async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body()):
-    if creds is None:
+async def get_timetable(request: Request, sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body()):
+
+    token = request.session.get("token")
+    if not token or not oauth.google:
         raise HTTPException(
-            401, f'Not authorized, please authorize at /login with {ALLOWED_EMAIL}')
+            401, f"Not authorized. Try login with an {ALLOWED_DOMAIN} email")
+
+    # Build Google Credentials from the session token
+    try:
+        creds = Credentials(
+            token=token["access_token"],
+            refresh_token=token.get("refresh_token"),
+            # ✔️ correct
+            token_uri=oauth.google.server_metadata["token_endpoint"],
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            scopes=oauth.google.client_kwargs["scope"].split()
+        )
+    except Exception as e:
+        print(e)
+        raise HTTPException(
+            status_code=401, detail=f'Error retrieving credentials, perhaps try login with an {ALLOWED_DOMAIN} email')
+
     sections = json_data.get(
         'sections', DEFAULT_SECTIONS)
     sections = sections if len(sections) > 0 else DEFAULT_SECTIONS
     time_table: Any = []
     free_classes: Any = []
 
-    data = get_sheet_data(sheetId)
+    data = get_sheet_data(sheetId, creds)
     # print(data)
     # it's in the format:
     # [[['MONDAY'], ['Slots', '1', '2', '3', '4', '5', '6', '7', '8'], ['Venues/time', '08:00-8:55', '09:00-09:55', '10:00-10:55', '11:00-11:55', '12:00-12:55', '1:00-01:55', '02:00-02:55', '03:00-03:55'], ['CLASSROOMS'], ['E-1 Academic Block I (50)', 'SE BCS-6A\nHajra Ahmed', 'Data Science BCS-6A\nSania Urooj', 'TBW BCS-6A\nNazia Imam', 'DSci BCS-6B\nSania Urooj', 'SE BCS-6J\nRubab Manzar', 'AI BCS-6A\nDr. Fahad Sherwani'],
@@ -299,4 +301,26 @@ async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body(
     return {"time_table": time_table, "free_classes": free_classes, "sections": sections or DEFAULT_SECTIONS, "url": SPREADSHEET_URL}
 
 
-app.mount("/", StaticFiles(directory="src/react-app/dist/"), name="ui")
+# app.mount("/static", StaticFiles(directory="src/react-app/dist"), name="static")
+
+# app.mount("/static", StaticFiles(directory="src/react-app/dist"), name="static")
+
+# # ─── 5) SPA Catch‑All ─────────────────────────────────────────────────────
+
+
+# @app.get("/{full_path:path}")
+# async def serve_spa(request: Request, full_path: str):
+#     """
+#     All unmatched GETs hit here.
+#     If no session token, redirect to /login.
+#     Otherwise serve the React index.html.
+#     """
+#     if request.session.get("token") is None:
+#         return RedirectResponse("/login")
+#     # serve the SPA entrypoint
+#     return FileResponse("src/react-app/dist/index.html")
+app.mount(
+    "/",
+    StaticFiles(directory="src/react-app/dist", html=True),
+    name="ui"
+)
