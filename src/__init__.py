@@ -1,47 +1,67 @@
-from fastapi.responses import FileResponse
+from contextlib import asynccontextmanager
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Any
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime
-from collections import defaultdict
 from dotenv import load_dotenv
+from google.oauth2.credentials import Credentials
 import os
 import httpx
+import json
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
 
 # Load environment variables from .env file
 load_dotenv()
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+REDIRECT_URI = os.getenv("REDIRECT_URI")
+ALLOWED_EMAIL = os.getenv("ALLOWED_EMAIL")
+
+SCOPES = [
+    "openid",                                 # for ID token
+    # to read the user’s email
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/spreadsheets.readonly"
+]
+TOKEN_STORE = "token.json"
+oauth2_flow = None     # holds the Flow during the auth handoff
+creds: Credentials | None = None
 
 TIMETABLE_API_URL = os.getenv("TIMETABLE_API_URL") or ""
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw/edit?gid=1909094994#gid=1909094994"
 
-#Extracted from above, not done programmatically through regex because if google decides to change its URL structure then this code will break
-DEFAULT_SHEET_ID = "1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw" 
+# Extracted from above, not done programmatically through regex because if google decides to change its URL structure then this code will break
+DEFAULT_SHEET_ID = "1fOKzJfMlgU1ZTrpPhf065Im0pk0sdV87uu73uyJmphw"
 DEFAULT_SECTIONS = ["BCS-6G"]
 
-#The spaces(whitespaces) after certain days ie: 'tuesday ' is important as it is the the way it is written in the google sheet
-SHEET_NAMES = ['MONDAY', 'TUESDAY ', 'WEDNESDAY',
+# The spaces(whitespaces) after certain days ie: 'tuesday ' is important as it is the the way it is written in the google sheet
+SHEET_NAMES = ['MONDAY', 'TUESDAY ', 'WEDNESDAY ',
                'THURSDAY', 'FRIDAY']
 LAB_HEADING_ROW = 46  # ignore this heading row as it has no classes
-FRIDAY_LAB_HEADING_ROW = 47  # ignore this heading row as it has no classes(friday has this heading on a differnet row number)
-LAB_CELL_SIZE = 3 #number of cells a LAB session occupies horizontally
+# ignore this heading row as it has no classes(friday has this heading on a differnet row number)
+FRIDAY_LAB_HEADING_ROW = 47
+LAB_CELL_SIZE = 3  # number of cells a LAB session occupies horizontally
 
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Replace with your React app's URL
-    allow_credentials=True,  # allow client to send cookies
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
-)
+def save_refresh_token(refresh_token: str):
+    with open(TOKEN_STORE, "w") as f:
+        json.dump({"refresh_token": refresh_token}, f)
 
 
-@app.get("/")
-def index():
-    return FileResponse("src/react-app/dist/index.html")
+def load_credentials() -> Credentials:
+    data = json.load(open(TOKEN_STORE))
+    return Credentials(
+        token=None,
+        refresh_token=data["refresh_token"],
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        scopes=SCOPES
+    )
 
 
 def convert_time(time_str: str):
@@ -94,32 +114,147 @@ def concatenate_time_ranges(range1: str, range2: str) -> str:
 
 
 def get_sheet_data(sheetId: str | None) -> list[list[str]]:
+    if creds is None:
+        raise HTTPException(401, "Not authorized—visit /login first.")
     try:
-        response = httpx.get(TIMETABLE_API_URL + (sheetId or ""), timeout=None)
-        if response.status_code != 200:
-            raise httpx.HTTPStatusError(
-                f"Request failed with status code {response.status_code}: {response.text}",
-                request=response.request,
-                response=response
+        service = build("sheets", "v4", credentials=creds)
+
+        data = []  # this will be List[List[List[str]]]
+
+        for raw_name in SHEET_NAMES:
+
+            # 2) quote the sheet name in case it has spaces/special chars
+            range_name = f"'{raw_name}'!A1:Z100"
+
+            # 3) fetch values (returns a Python dict) :contentReference[oaicite:0]{index=0}
+            result = (
+                service
+                .spreadsheets()
+                .values()
+                .get(spreadsheetId=sheetId, range=range_name)
+                .execute()
             )
-        json_data = response.json()
-        grouped_data = defaultdict(list)
-        for row in json_data:
-            for key, value in row.items():
-                if key in SHEET_NAMES:
-                    row_values = [value] + \
-                        [row.get(f"col_{i}", "") for i in range(2, 11)]
-                    grouped_data[key].append(row_values)
-        return list(grouped_data.values())
+
+            # 4) extract rows (list of lists of strings)
+            # each row is a list of cell‐value strings :contentReference[oaicite:1]{index=1}
+            rows = result.get("values", [])
+
+            # 5) append to our top‑level list
+            data.append(rows)
+
+        # now `data` is a list with one entry per sheet, each being its own rows list
+        return data
+    # grouped_data = defaultdict(list)
+    # for row in json_data:
+    #     for key, value in row.items():
+    #         if key in SHEET_NAMES:
+    #             row_values = [value] + \
+    #                 [row.get(f"col_{i}", "") for i in range(2, 11)]
+    #             grouped_data[key].append(row_values)
+    # return list(grouped_data.values())
     except Exception as e:
         print(e)
         raise HTTPException(
             status_code=500, detail="Error retrieving sheet data")
 
 
+# –– Lifespan Handler ––#
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global creds
+    # startup: load existing refresh token if it exists
+    if os.path.exists(TOKEN_STORE):
+        creds = load_credentials()
+    yield
+    # shutdown: nothing needed
+
+# –– Create app with lifespan ––#
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace with your React app's URL
+    allow_credentials=True,  # allow client to send cookies
+    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
+
+
+@app.get("/")
+def index():
+    return FileResponse("src/react-app/dist/index.html")
+
+
+@app.get("/login")
+def login():
+    """
+    Step 1: Redirect *you* to Google’s OAuth consent screen.
+    Only ALLOWED_EMAIL will be allowed in the callback.
+    """
+    if not creds:
+        raise HTTPException(401, "Not authorized—visit /login first.")
+    global oauth2_flow
+    client_config = {
+        "web": {
+            "client_id":     CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "auth_uri":      "https://accounts.google.com/o/oauth2/auth",
+            "token_uri":     "https://oauth2.googleapis.com/token",
+        }
+    }
+    oauth2_flow = Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
+    )
+    auth_url, _ = oauth2_flow.authorization_url(
+        access_type="offline",          # request a one-time refresh token
+        include_granted_scopes=False,  # keep any prior consents
+        prompt="consent"               # force the consent dialog
+    )
+    return RedirectResponse(auth_url)
+
+
+@app.get("/oauth2callback")
+def oauth2callback(request: Request):
+    """
+    Step 2: Google redirects here with ?code=…
+    We exchange it for tokens, verify the email, and save the refresh token.
+    """
+    global oauth2_flow, creds
+    if oauth2_flow is None:
+        raise HTTPException(400, "Start at /login first.")
+
+    # Exchange code for tokens
+    oauth2_flow.fetch_token(code=request.query_params["code"])
+    temp_creds = oauth2_flow.credentials
+
+    # Verify that *you* are the one authenticating
+    resp = httpx.get(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        headers={"Authorization": f"Bearer {temp_creds.token}"}
+    )
+    resp.raise_for_status()
+    user_info = resp.json()
+    if user_info.get("email") != ALLOWED_EMAIL:
+        raise HTTPException(403, "Unauthorized user")
+
+    # Persist your one-time refresh token
+    print("Refresh token:", temp_creds.refresh_token)
+    if not temp_creds.refresh_token:
+        raise HTTPException(
+            400, "No refresh token. You are probably already signed in.")
+    save_refresh_token(temp_creds.refresh_token)
+    # Load into our global creds so /sheet-data works immediately
+    creds = load_credentials()
+    oauth2_flow = None  # clear the flow
+
+    return {"status": "authorized", "email": user_info["email"]}
+
+
 @app.post("/timetable")
 async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body()):
-    
+
     sections = json_data.get(
         'sections', DEFAULT_SECTIONS)
     sections = sections if len(sections) > 0 else DEFAULT_SECTIONS
@@ -127,23 +262,26 @@ async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body(
     free_classes: Any = []
 
     data = get_sheet_data(sheetId)
+    # print(data)
+    # it's in the format:
+    # [[['MONDAY'], ['Slots', '1', '2', '3', '4', '5', '6', '7', '8'], ['Venues/time', '08:00-8:55', '09:00-09:55', '10:00-10:55', '11:00-11:55', '12:00-12:55', '1:00-01:55', '02:00-02:55', '03:00-03:55'], ['CLASSROOMS'], ['E-1 Academic Block I (50)', 'SE BCS-6A\nHajra Ahmed', 'Data Science BCS-6A\nSania Urooj', 'TBW BCS-6A\nNazia Imam', 'DSci BCS-6B\nSania Urooj', 'SE BCS-6J\nRubab Manzar', 'AI BCS-6A\nDr. Fahad Sherwani'],
 
     for i, day in enumerate(SHEET_NAMES):
         # populating time table
         class_data: list[dict[str, str]] = []
 
-        for row in data[i][3:]:
+        for row in data[i][4:]:
             for col in range(1, len(row)):
                 if any(section in row[col] for section in sections):
                     # if it's a lab, use the time range of three cells horizontally
                     if ("lab" in row[col].lower()):
                         class_data.append(
-                            {"course": row[col], "time": concatenate_time_ranges(data[i][1][col], data[i][1][col+LAB_CELL_SIZE-1]),
+                            {"course": row[col], "time": concatenate_time_ranges(data[i][2][col], data[i][2][col+LAB_CELL_SIZE-1]),
                                 "room": row[0]}
                         )
                     else:
                         class_data.append(
-                            {"course": row[col], "time": data[i][1][col],
+                            {"course": row[col], "time": data[i][2][col],
                                 "room": row[0]})
         class_data = sorted(
             class_data, key=lambda x: convert_time(x['time']))
@@ -155,13 +293,14 @@ async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body(
 
         # populating free classes
         class_data = []
-        for index, row in enumerate(data[i][3:]):
+        for index, row in enumerate(data[i][4:]):
 
-            if index == LAB_HEADING_ROW or (day == "FRIDAY" and index == FRIDAY_LAB_HEADING_ROW):  # ignore the LABS heading row as it contains no classes
+            # ignore the LABS heading row as it contains no classes
+            if index == LAB_HEADING_ROW or (day == "FRIDAY" and index == FRIDAY_LAB_HEADING_ROW):
                 continue
             for col in range(len(row)):
-                # checking for existence of timeslot by checking data[i][1][col] as some empty cells are out of bounds
-                if not row[col] and data[i][1][col]:
+                # checking for existence of timeslot by checking data[i][2][col] as some empty cells are out of bounds
+                if not row[col] and data[i][2][col]:
                     # labs actually occupy only the first column of the three columns they seem to occupy in the timetable, rest two are empty
                     prev_col = col-1
                     prev_prev_col = col-2
@@ -170,7 +309,7 @@ async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body(
                     if prev_prev_col > -1 and "lab" in row[prev_prev_col].lower() and prev_col != 0:
                         continue
                     class_data.append(
-                        {"time": data[i][1][col], "room": row[0]})
+                        {"time": data[i][2][col], "room": row[0]})
         class_data = sorted(
             class_data, key=lambda x: x['time'])
         for class_info in class_data:
