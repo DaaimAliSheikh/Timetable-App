@@ -52,11 +52,10 @@ def save_refresh_token(refresh_token: str):
         json.dump({"refresh_token": refresh_token}, f)
 
 
-def load_credentials() -> Credentials:
-    data = json.load(open(TOKEN_STORE))
+def generate_credentials(refresh_token: str) -> Credentials:
     return Credentials(
         token=None,
-        refresh_token=data["refresh_token"],
+        refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
@@ -114,8 +113,7 @@ def concatenate_time_ranges(range1: str, range2: str) -> str:
 
 
 def get_sheet_data(sheetId: str | None) -> list[list[str]]:
-    if creds is None:
-        raise HTTPException(401, "Not authorized—visit /login first.")
+
     try:
         service = build("sheets", "v4", credentials=creds)
 
@@ -144,32 +142,14 @@ def get_sheet_data(sheetId: str | None) -> list[list[str]]:
 
         # now `data` is a list with one entry per sheet, each being its own rows list
         return data
-    # grouped_data = defaultdict(list)
-    # for row in json_data:
-    #     for key, value in row.items():
-    #         if key in SHEET_NAMES:
-    #             row_values = [value] + \
-    #                 [row.get(f"col_{i}", "") for i in range(2, 11)]
-    #             grouped_data[key].append(row_values)
-    # return list(grouped_data.values())
+
     except Exception as e:
         print(e)
         raise HTTPException(
             status_code=500, detail="Error retrieving sheet data")
 
 
-# –– Lifespan Handler ––#
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global creds
-    # startup: load existing refresh token if it exists
-    if os.path.exists(TOKEN_STORE):
-        creds = load_credentials()
-    yield
-    # shutdown: nothing needed
-
-# –– Create app with lifespan ––#
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -191,8 +171,7 @@ def login():
     Step 1: Redirect *you* to Google’s OAuth consent screen.
     Only ALLOWED_EMAIL will be allowed in the callback.
     """
-    if not creds:
-        raise HTTPException(401, "Not authorized—visit /login first.")
+
     global oauth2_flow
     client_config = {
         "web": {
@@ -240,13 +219,11 @@ def oauth2callback(request: Request):
         raise HTTPException(403, "Unauthorized user")
 
     # Persist your one-time refresh token
-    print("Refresh token:", temp_creds.refresh_token)
     if not temp_creds.refresh_token:
         raise HTTPException(
-            400, "No refresh token. You are probably already signed in.")
-    save_refresh_token(temp_creds.refresh_token)
+            400, "No refresh token.")
     # Load into our global creds so /sheet-data works immediately
-    creds = load_credentials()
+    creds = generate_credentials(temp_creds.refresh_token)
     oauth2_flow = None  # clear the flow
 
     return {"status": "authorized", "email": user_info["email"]}
@@ -254,7 +231,9 @@ def oauth2callback(request: Request):
 
 @app.post("/timetable")
 async def get_timetable(sheetId: str = DEFAULT_SHEET_ID, json_data: dict = Body()):
-
+    if creds is None:
+        raise HTTPException(
+            401, f'Not authorized, please authorize at /login with {ALLOWED_EMAIL}')
     sections = json_data.get(
         'sections', DEFAULT_SECTIONS)
     sections = sections if len(sections) > 0 else DEFAULT_SECTIONS
